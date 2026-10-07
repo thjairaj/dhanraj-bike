@@ -1,0 +1,46 @@
+name: Export Upload Certificate
+
+on:
+  workflow_dispatch:
+
+jobs:
+  export:
+    name: Export upload_certificate.pem from existing keystore
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Rebuild keystore from secrets and export certificate
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          for V in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS; do
+            if [ -z "${!V}" ]; then echo "Missing secret: $V"; exit 1; fi
+          done
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > release.keystore
+          keytool -export -rfc \
+            -keystore release.keystore \
+            -alias "$ANDROID_KEY_ALIAS" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" \
+            -file upload_certificate.pem
+          cp upload_certificate.pem upload_certificate.pem.txt
+          echo "=== SHA1 fingerprint (Play should show this) ==="
+          keytool -list -v \
+            -keystore release.keystore \
+            -alias "$ANDROID_KEY_ALIAS" \
+            -storepass "$ANDROID_KEYSTORE_PASSWORD" | grep -E "SHA1|SHA-1"
+
+      - name: Upload certificate
+        uses: actions/upload-artifact@v4
+        with:
+          name: upload-certificate
+          path: |
+            upload_certificate.pem
+            upload_certificate.pem.txt
+          retention-days: 7
