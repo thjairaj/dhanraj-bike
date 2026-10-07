@@ -1,23 +1,45 @@
 import { fetch } from "expo/fetch";
 import { Platform } from "react-native";
+import Constants from "expo-constants";
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+
+const FALLBACK_HOST = "https://dhanraj-bike-production.up.railway.app";
+
+/**
+ * Turns whatever is configured (bare host, "https://host", "https://host/",
+ * accidental "https://https://host", "https:/host") into a clean origin
+ * like "https://host". Never returns a URL whose host is "https".
+ */
+function normalizeBaseUrl(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  let s = String(raw).trim();
+  if (!s) return null;
+  // Strip every leading protocol (handles doubled "https://https://")
+  s = s.replace(/^(?:https?:?\/*)+/i, "");
+  // Drop path / trailing slashes
+  s = s.replace(/\/.*$/, "");
+  if (!s || s.toLowerCase() === "https" || s.toLowerCase() === "http") return null;
+  const isLocal = /^(localhost|127\.|10\.|192\.168\.)/.test(s);
+  return `${isLocal ? "http" : "https"}://${s}`;
+}
 
 /**
  * Gets the base URL for the Express API server.
- * - On web (production or dev): uses window.location.origin so the web app
- *   always talks to the same server that served the HTML (no hardcoded port).
- * - On native (Expo Go / APK): uses the EXPO_PUBLIC_DOMAIN env var which is
- *   injected by the dev workflow or baked in at EAS build time. Accepts the
- *   value with or without a protocol (eas.json sets a full "https://..."
- *   URL, other places set a bare host) and falls back to the app's real
- *   production domain, not a stale/unrelated Railway URL.
+ * - Web: same origin as the page.
+ * - Native (APK): first valid value of EXPO_PUBLIC_API_URL, EXPO_PUBLIC_DOMAIN,
+ *   app.config extra.apiUrl, then the Railway fallback. All are normalised,
+ *   so a protocol-prefixed or bare host both work.
  */
 export function getApiUrl(): string {
   if (Platform.OS === "web" && typeof window !== "undefined") {
     return window.location.origin;
   }
-  const host = process.env.EXPO_PUBLIC_DOMAIN || "app.thdhanraj.co.in";
-  return /^https?:\/\//i.test(host) ? host : `https://${host}`;
+  return (
+    normalizeBaseUrl(process.env.EXPO_PUBLIC_API_URL) ||
+    normalizeBaseUrl(process.env.EXPO_PUBLIC_DOMAIN) ||
+    normalizeBaseUrl((Constants.expoConfig?.extra as any)?.apiUrl) ||
+    FALLBACK_HOST
+  );
 }
 
 // ── Subscription paywall hook ────────────────────────────────────────────────
